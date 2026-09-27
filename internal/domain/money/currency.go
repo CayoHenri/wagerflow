@@ -1,11 +1,8 @@
 package money
 
 import (
-	"errors"
 	"strings"
 )
-
-var ErrInvalidCurrency = errors.New("invalid currency")
 
 type Currency struct {
 	code string
@@ -37,4 +34,13 @@ func NewCurrency(value string) (Currency, error) {
 
 func (c Currency) String() string {
 	return c.code
+}
+
+func (c Currency) IsValid() bool {
+	switch c {
+	case BRL, USD, EUR:
+		return true
+	default:
+		return false
+	}
 }

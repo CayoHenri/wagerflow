@@ -73,3 +73,38 @@ func TestCurrencyString(t *testing.T) {
 
 	assert.Equal(t, "BRL", currency.String())
 }
+
+func TestCurrencyIsValid(t *testing.T) {
+	tests := []struct {
+		name     string
+		currency Currency
+		expected bool
+	}{
+		{
+			name:     "should return true for BRL",
+			currency: BRL,
+			expected: true,
+		},
+		{
+			name:     "should return true for USD",
+			currency: USD,
+			expected: true,
+		},
+		{
+			name:     "should return true for EUR",
+			currency: EUR,
+			expected: true,
+		},
+		{
+			name:     "should return false for zero value",
+			currency: Currency{},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.currency.IsValid())
+		})
+	}
+}
