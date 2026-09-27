@@ -12,12 +12,12 @@ func registerLifecycle(lifecycle fx.Lifecycle, cfg *config.Config) {
 	lifecycle.Append(
 		fx.Hook{
 			OnStart: func(ctx context.Context) error {
-				log.Printf("%s started | environment=%s | http_port=%s", cfg.AppName, cfg.Env, cfg.HTTPPort)
+				log.Printf("%s started | environment=%s | http_port=%d", cfg.App.Name, cfg.App.Env, cfg.HTTP.Port)
 				return nil
 			},
 
 			OnStop: func(ctx context.Context) error {
-				log.Printf("%s stopped", cfg.AppName)
+				log.Printf("%s stopped", cfg.App.Name)
 				return nil
 			},
 		},
