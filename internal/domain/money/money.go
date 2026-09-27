@@ -12,6 +12,7 @@ type Money struct {
 	currency Currency
 }
 
+// Criação
 func NewFromMinorUnits(amount int64, currency Currency) (Money, error) {
 	if !currency.IsValid() {
 		return Money{}, ErrInvalidCurrency
@@ -99,6 +100,7 @@ func Zero(currency Currency) (Money, error) {
 	return NewFromMinorUnits(0, currency)
 }
 
+// representação
 func (m Money) Amount() int64 {
 	return m.amount
 }
@@ -112,6 +114,45 @@ func (m Money) String() string {
 	fraction := m.amount % 100
 
 	return fmt.Sprintf("%d.%02d", whole, fraction)
+}
+
+// estado
+func (m Money) IsZero() bool {
+	return m.IsValid() && m.amount == 0
+}
+
+func (m Money) IsValid() bool {
+	return m.currency.IsValid() && m.amount >= 0
+}
+
+// comparação
+func (m Money) Equal(other Money) bool {
+	if !m.IsValid() || !other.IsValid() {
+		return false
+	}
+
+	return m.amount == other.amount && m.currency == other.currency
+}
+
+func (m Money) Compare(other Money) (int, error) {
+	if !m.IsValid() || !other.IsValid() {
+		return 0, ErrInvalidMoney
+	}
+
+	if m.currency != other.currency {
+		return 0, ErrCurrencyMismatch
+	}
+
+	switch {
+	case m.amount < other.amount:
+		return -1, nil
+
+	case m.amount > other.amount:
+		return 1, nil
+
+	default:
+		return 0, nil
+	}
 }
 
 func isDigits(value string) bool {

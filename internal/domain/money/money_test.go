@@ -7,6 +7,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func mustMoneyFromMinorUnits(t *testing.T, amount int64, currency Currency) Money {
+	t.Helper()
+
+	m, err := NewFromMinorUnits(amount, currency)
+	require.NoError(t, err)
+
+	return m
+}
+
 func TestNewFromMinorUnits(t *testing.T) {
 	t.Run("should create money from minor units", func(t *testing.T) {
 		m, err := NewFromMinorUnits(1025, BRL)
@@ -282,4 +291,147 @@ func TestMoneyParseAndString(t *testing.T) {
 	assert.Equal(t, int64(123456789), m.Amount())
 	assert.Equal(t, "1234567.89", m.String())
 	assert.Equal(t, BRL, m.Currency())
+}
+
+func TestMoneyIsZero(t *testing.T) {
+	tests := []struct {
+		name     string
+		amount   int64
+		expected bool
+	}{
+		{
+			name:     "should return true when amount is zero",
+			amount:   0,
+			expected: true,
+		},
+		{
+			name:     "should return false when amount is greater than zero",
+			amount:   1,
+			expected: false,
+		},
+		{
+			name:     "should return false for positive amount",
+			amount:   1025,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, err := NewFromMinorUnits(tt.amount, BRL)
+
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expected, m.IsZero())
+		})
+	}
+}
+
+func TestMoneyEqual(t *testing.T) {
+	tests := []struct {
+		name     string
+		first    Money
+		second   Money
+		expected bool
+	}{
+		{
+			name:     "should return true for equal money",
+			first:    mustMoneyFromMinorUnits(t, 1000, BRL),
+			second:   mustMoneyFromMinorUnits(t, 1000, BRL),
+			expected: true,
+		},
+		{
+			name:     "should return false for different amounts",
+			first:    mustMoneyFromMinorUnits(t, 1000, BRL),
+			second:   mustMoneyFromMinorUnits(t, 2000, BRL),
+			expected: false,
+		},
+		{
+			name:     "should return false for different currencies",
+			first:    mustMoneyFromMinorUnits(t, 1000, BRL),
+			second:   mustMoneyFromMinorUnits(t, 1000, USD),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.first.Equal(tt.second))
+		})
+	}
+}
+
+func TestMoneyCompare(t *testing.T) {
+	tests := []struct {
+		name     string
+		first    Money
+		second   Money
+		expected int
+		wantErr  error
+	}{
+		{
+			name:     "should return minus one when first amount is smaller",
+			first:    mustMoneyFromMinorUnits(t, 1000, BRL),
+			second:   mustMoneyFromMinorUnits(t, 2000, BRL),
+			expected: -1,
+		},
+		{
+			name:     "should return zero when amounts are equal",
+			first:    mustMoneyFromMinorUnits(t, 1000, BRL),
+			second:   mustMoneyFromMinorUnits(t, 1000, BRL),
+			expected: 0,
+		},
+		{
+			name:     "should return one when first amount is greater",
+			first:    mustMoneyFromMinorUnits(t, 2000, BRL),
+			second:   mustMoneyFromMinorUnits(t, 1000, BRL),
+			expected: 1,
+		},
+		{
+			name:    "should reject different currencies",
+			first:   mustMoneyFromMinorUnits(t, 1000, BRL),
+			second:  mustMoneyFromMinorUnits(t, 1000, USD),
+			wantErr: ErrCurrencyMismatch,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := tt.first.Compare(tt.second)
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestMoneyIsValid(t *testing.T) {
+	t.Run("should return true for valid money", func(t *testing.T) {
+		m, err := Parse("10.25", BRL)
+
+		require.NoError(t, err)
+
+		assert.True(t, m.IsValid())
+	})
+
+	t.Run("should return true for valid zero money", func(t *testing.T) {
+		m, err := Zero(BRL)
+
+		require.NoError(t, err)
+
+		assert.True(t, m.IsValid())
+	})
+
+	t.Run("should return false for zero value money", func(t *testing.T) {
+		var m Money
+
+		assert.False(t, m.IsValid())
+	})
 }
