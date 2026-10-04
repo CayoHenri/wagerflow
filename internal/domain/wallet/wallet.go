@@ -21,6 +21,10 @@ func New(id, playerID string, currency money.Currency, balance money.Money, now 
 	id = strings.TrimSpace(id)
 	playerID = strings.TrimSpace(playerID)
 
+	if now.IsZero() {
+		return nil, ErrInvalidTimestamp
+	}
+
 	if id == "" {
 		return nil, ErrInvalidID
 	}
@@ -68,6 +72,14 @@ func Restore(
 	id = strings.TrimSpace(id)
 	playerID = strings.TrimSpace(playerID)
 
+	if createdAt.IsZero() || updatedAt.IsZero() {
+		return nil, ErrInvalidTimestamp
+	}
+
+	if updatedAt.Before(createdAt) {
+		return nil, ErrInvalidTimestamp
+	}
+
 	if id == "" {
 		return nil, ErrInvalidID
 	}
@@ -107,6 +119,60 @@ func Restore(
 	}, nil
 }
 
+func (w *Wallet) Credit(amount money.Money, now time.Time) error {
+	if err := w.validateOperationTime(now); err != nil {
+		return err
+	}
+
+	if !amount.IsValid() || !amount.IsPositive() {
+		return ErrInvalidAmount
+	}
+
+	if amount.Currency() != w.currency {
+		return ErrCurrencyMismatch
+	}
+
+	newBalance, err := w.balance.Add(amount)
+	if err != nil {
+		return err
+	}
+
+	w.balance = newBalance
+	w.version++
+	w.updatedAt = now
+
+	return nil
+}
+
+func (w *Wallet) Debit(amount money.Money, now time.Time) error {
+	if err := w.validateOperationTime(now); err != nil {
+		return err
+	}
+
+	if !amount.IsValid() || !amount.IsPositive() {
+		return ErrInvalidAmount
+	}
+
+	if amount.Currency() != w.currency {
+		return ErrCurrencyMismatch
+	}
+
+	newBalance, err := w.balance.Subtract(amount)
+	if err != nil {
+		return err
+	}
+
+	if newBalance.IsNegative() {
+		return ErrInsufficientFunds
+	}
+
+	w.balance = newBalance
+	w.version++
+	w.updatedAt = now
+
+	return nil
+}
+
 func (w Wallet) ID() string {
 	return w.id
 }
@@ -133,4 +199,16 @@ func (w Wallet) CreatedAt() time.Time {
 
 func (w Wallet) UpdatedAt() time.Time {
 	return w.updatedAt
+}
+
+func (w Wallet) validateOperationTime(now time.Time) error {
+	if now.IsZero() {
+		return ErrInvalidTimestamp
+	}
+
+	if now.Before(w.updatedAt) {
+		return ErrInvalidTimestamp
+	}
+
+	return nil
 }
