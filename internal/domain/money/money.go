@@ -18,10 +18,6 @@ func NewFromMinorUnits(amount int64, currency Currency) (Money, error) {
 		return Money{}, ErrInvalidCurrency
 	}
 
-	if amount < 0 {
-		return Money{}, ErrNegativeAmount
-	}
-
 	return Money{
 		amount:   amount,
 		currency: currency,
@@ -100,6 +96,18 @@ func Zero(currency Currency) (Money, error) {
 	return NewFromMinorUnits(0, currency)
 }
 
+func (m Money) Negate() (Money, error) {
+	if !m.IsValid() {
+		return Money{}, ErrInvalidMoney
+	}
+
+	if m.amount == math.MinInt64 {
+		return Money{}, ErrAmountOverflow
+	}
+
+	return NewFromMinorUnits(-m.amount, m.currency)
+}
+
 // ações
 func (m Money) Add(other Money) (Money, error) {
 	if !m.IsValid() || !other.IsValid() {
@@ -110,7 +118,7 @@ func (m Money) Add(other Money) (Money, error) {
 		return Money{}, ErrCurrencyMismatch
 	}
 
-	if other.amount > math.MaxInt64-m.amount {
+	if !canAdd(m.amount, other.amount) {
 		return Money{}, ErrAmountOverflow
 	}
 
@@ -118,19 +126,12 @@ func (m Money) Add(other Money) (Money, error) {
 }
 
 func (m Money) Subtract(other Money) (Money, error) {
-	if !m.IsValid() || !other.IsValid() {
-		return Money{}, ErrInvalidMoney
+	negated, err := other.Negate()
+	if err != nil {
+		return Money{}, err
 	}
 
-	if m.currency != other.currency {
-		return Money{}, ErrCurrencyMismatch
-	}
-
-	if other.amount > m.amount {
-		return Money{}, ErrNegativeAmount
-	}
-
-	return NewFromMinorUnits(m.amount-other.amount, m.currency)
+	return m.Add(negated)
 }
 
 // representação
@@ -143,8 +144,20 @@ func (m Money) Currency() Currency {
 }
 
 func (m Money) String() string {
+	if !m.IsValid() {
+		return ""
+	}
+
 	whole := m.amount / 100
 	fraction := m.amount % 100
+
+	if fraction < 0 {
+		fraction = -fraction
+	}
+
+	if m.amount < 0 && whole == 0 {
+		return fmt.Sprintf("-0.%02d", fraction)
+	}
 
 	return fmt.Sprintf("%d.%02d", whole, fraction)
 }
@@ -155,7 +168,15 @@ func (m Money) IsZero() bool {
 }
 
 func (m Money) IsValid() bool {
-	return m.currency.IsValid() && m.amount >= 0
+	return m.currency.IsValid()
+}
+
+func (m Money) IsNegative() bool {
+	return m.IsValid() && m.amount < 0
+}
+
+func (m Money) IsPositive() bool {
+	return m.IsValid() && m.amount > 0
 }
 
 // comparação
@@ -197,6 +218,18 @@ func isDigits(value string) bool {
 		if char < '0' || char > '9' {
 			return false
 		}
+	}
+
+	return true
+}
+
+func canAdd(a, b int64) bool {
+	if b > 0 && a > math.MaxInt64-b {
+		return false
+	}
+
+	if b < 0 && a < math.MinInt64-b {
+		return false
 	}
 
 	return true

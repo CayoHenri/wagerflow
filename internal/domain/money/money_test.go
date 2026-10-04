@@ -36,13 +36,12 @@ func TestNewFromMinorUnits(t *testing.T) {
 		assert.Equal(t, BRL, m.Currency())
 	})
 
-	t.Run("should reject negative minor units", func(t *testing.T) {
-		m, err := NewFromMinorUnits(-1, BRL)
+	t.Run("should create negative money", func(t *testing.T) {
+		m, err := NewFromMinorUnits(-10, BRL)
+		require.NoError(t, err)
 
-		require.Error(t, err)
-
-		assert.ErrorIs(t, err, ErrNegativeAmount)
-		assert.Equal(t, Money{}, m)
+		assert.Equal(t, int64(-10), m.Amount())
+		assert.Equal(t, BRL, m.Currency())
 	})
 
 	t.Run("should reject invalid currency", func(t *testing.T) {
@@ -557,7 +556,7 @@ func TestMoneySubtract(t *testing.T) {
 		assert.True(t, first.Equal(result))
 	})
 
-	t.Run("should reject result below zero", func(t *testing.T) {
+	t.Run("should allow negative subtraction result", func(t *testing.T) {
 		first, err := Parse("100.00", BRL)
 		require.NoError(t, err)
 
@@ -566,10 +565,11 @@ func TestMoneySubtract(t *testing.T) {
 
 		result, err := first.Subtract(second)
 
-		require.Error(t, err)
+		require.NoError(t, err)
 
-		assert.ErrorIs(t, err, ErrNegativeAmount)
-		assert.Equal(t, Money{}, result)
+		assert.Equal(t, int64(-5000), result.Amount())
+		assert.Equal(t, "-50.00", result.String())
+		assert.True(t, result.IsNegative())
 	})
 
 	t.Run("should reject different currencies", func(t *testing.T) {
@@ -594,6 +594,137 @@ func TestMoneySubtract(t *testing.T) {
 		var invalid Money
 
 		result, err := first.Subtract(invalid)
+
+		require.Error(t, err)
+
+		assert.ErrorIs(t, err, ErrInvalidMoney)
+		assert.Equal(t, Money{}, result)
+	})
+
+	t.Run("should add negative money", func(t *testing.T) {
+		first, err := Parse("100.00", BRL)
+		require.NoError(t, err)
+
+		second, err := NewFromMinorUnits(-2500, BRL)
+		require.NoError(t, err)
+
+		result, err := first.Add(second)
+
+		require.NoError(t, err)
+
+		assert.Equal(t, "75.00", result.String())
+	})
+
+	t.Run("should reject underflow", func(t *testing.T) {
+		first, err := NewFromMinorUnits(math.MinInt64, BRL)
+		require.NoError(t, err)
+
+		second, err := NewFromMinorUnits(-1, BRL)
+		require.NoError(t, err)
+
+		result, err := first.Add(second)
+
+		require.Error(t, err)
+
+		assert.ErrorIs(t, err, ErrAmountOverflow)
+		assert.Equal(t, Money{}, result)
+	})
+}
+
+func TestMoneySign(t *testing.T) {
+	tests := []struct {
+		name       string
+		amount     int64
+		isNegative bool
+		isZero     bool
+		isPositive bool
+	}{
+		{
+			name:       "should identify negative money",
+			amount:     -100,
+			isNegative: true,
+		},
+		{
+			name:   "should identify zero money",
+			amount: 0,
+			isZero: true,
+		},
+		{
+			name:       "should identify positive money",
+			amount:     100,
+			isPositive: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, err := NewFromMinorUnits(tt.amount, BRL)
+
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.isNegative, m.IsNegative())
+			assert.Equal(t, tt.isZero, m.IsZero())
+			assert.Equal(t, tt.isPositive, m.IsPositive())
+		})
+	}
+}
+
+func TestMoneyNegate(t *testing.T) {
+	t.Run("should negate positive money", func(t *testing.T) {
+		m, err := Parse("10.25", BRL)
+		require.NoError(t, err)
+
+		result, err := m.Negate()
+
+		require.NoError(t, err)
+
+		assert.Equal(t, int64(-1025), result.Amount())
+		assert.Equal(t, "-10.25", result.String())
+		assert.Equal(t, BRL, result.Currency())
+		assert.True(t, result.IsNegative())
+	})
+
+	t.Run("should negate negative money", func(t *testing.T) {
+		m, err := NewFromMinorUnits(-1025, BRL)
+		require.NoError(t, err)
+
+		result, err := m.Negate()
+
+		require.NoError(t, err)
+
+		assert.Equal(t, int64(1025), result.Amount())
+		assert.Equal(t, "10.25", result.String())
+		assert.True(t, result.IsPositive())
+	})
+
+	t.Run("should keep zero as zero", func(t *testing.T) {
+		m, err := Zero(BRL)
+		require.NoError(t, err)
+
+		result, err := m.Negate()
+
+		require.NoError(t, err)
+
+		assert.True(t, result.IsZero())
+		assert.Equal(t, "0.00", result.String())
+	})
+
+	t.Run("should reject minimum int64 overflow", func(t *testing.T) {
+		m, err := NewFromMinorUnits(math.MinInt64, BRL)
+		require.NoError(t, err)
+
+		result, err := m.Negate()
+
+		require.Error(t, err)
+
+		assert.ErrorIs(t, err, ErrAmountOverflow)
+		assert.Equal(t, Money{}, result)
+	})
+
+	t.Run("should reject invalid money", func(t *testing.T) {
+		var m Money
+
+		result, err := m.Negate()
 
 		require.Error(t, err)
 
