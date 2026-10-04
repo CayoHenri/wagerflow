@@ -1,0 +1,311 @@
+name: CI
+
+# Define quando o workflow será executado.
+on:
+  # Executa quando houver push para a branch main.
+  push:
+    branches:
+      - main
+
+  # Executa quando um Pull Request tiver a main como destino.
+  pull_request:
+    branches:
+      - main
+
+# Princípio do menor privilégio.
+# O workflow só precisa ler o conteúdo do repositório.
+permissions:
+  contents: read
+
+# Variáveis disponíveis para todos os jobs.
+env:
+  # Evita que algum teste fique executando indefinidamente.
+  GO_TEST_TIMEOUT: 5m
+
+jobs:
+  # ============================================================
+  # FORMATTING
+  # ============================================================
+  #
+  # Responsável apenas por verificar a formatação do código.
+  #
+  # Este job NÃO altera os arquivos.
+  # Ele falha caso algum .go precise passar pelo gofmt.
+  #
+  # Como este job não possui "needs", ele pode executar
+  # paralelamente ao job "test".
+  #
+  format:
+    name: Formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      # Faz checkout do código do repositório dentro do runner.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Instala a versão do Go declarada no go.mod.
+      #
+      # Isso evita duplicarmos a versão do Go neste arquivo.
+      #
+      # Exemplo:
+      #
+      # go 1.26
+      #
+      # no go.mod será utilizado automaticamente.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # gofmt -l lista os arquivos que NÃO estão formatados.
+      #
+      # Diferentemente de:
+      #
+      #   gofmt -w .
+      #
+      # não queremos corrigir os arquivos dentro do CI.
+      # Queremos que o CI falhe para o desenvolvedor corrigir
+      # e commitar a alteração.
+      - name: Check formatting
+        shell: bash
+        run: |
+          UNFORMATTED="$(gofmt -l .)"
+
+          if [ -n "$UNFORMATTED" ]; then
+            echo "The following files are not formatted:"
+            echo "$UNFORMATTED"
+            echo ""
+            echo "Run the following command locally:"
+            echo "gofmt -w ."
+            exit 1
+          fi
+
+          echo "All Go files are correctly formatted."
+
+  # ============================================================
+  # TESTS / QUALITY
+  # ============================================================
+  #
+  # Executa:
+  #
+  # - validação do go.mod/go.sum
+  # - go vet
+  # - testes
+  # - coverage
+  # - race detector
+  #
+  # Este job também executa paralelamente ao job "format".
+  #
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Baixa antecipadamente as dependências.
+      #
+      # O setup-go utiliza cache, então execuções posteriores
+      # tendem a ser mais rápidas.
+      - name: Download dependencies
+        run: go mod download
+
+      # --------------------------------------------------------
+      # GO MOD TIDY
+      # --------------------------------------------------------
+      #
+      # Garante que go.mod e go.sum estejam sincronizados.
+      #
+      # O comando "go mod tidy" pode modificar esses arquivos.
+      # Depois verificamos se apareceu algum diff.
+      #
+      # Se houver diferença significa que alguém esqueceu de
+      # executar "go mod tidy" antes de fazer o commit.
+      #
+      - name: Verify dependencies
+        shell: bash
+        run: |
+          go mod tidy
+
+          if ! git diff --exit-code -- go.mod go.sum; then
+            echo ""
+            echo "go.mod or go.sum is not tidy."
+            echo "Run the following command locally:"
+            echo "go mod tidy"
+            exit 1
+          fi
+
+          echo "go.mod and go.sum are tidy."
+
+      # --------------------------------------------------------
+      # GO VET
+      # --------------------------------------------------------
+      #
+      # Faz análise estática procurando construções suspeitas
+      # que são válidas para o compilador, mas provavelmente
+      # representam bugs.
+      #
+      # Exemplos:
+      #
+      # - uso incorreto de Printf
+      # - problemas com struct tags
+      # - algumas chamadas suspeitas
+      #
+      - name: Run go vet
+        run: go vet ./...
+
+      # --------------------------------------------------------
+      # TESTS + COVERAGE
+      # --------------------------------------------------------
+      #
+      # Executa todos os testes do projeto e gera:
+      #
+      # coverage.out
+      #
+      # O modo atomic é uma boa escolha porque o projeto terá
+      # bastante código concorrente futuramente.
+      #
+      # ./... significa todos os packages abaixo do módulo.
+      #
+      - name: Run tests with coverage
+        run: |
+          go test \
+            -timeout="${GO_TEST_TIMEOUT}" \
+            -covermode=atomic \
+            -coverprofile=coverage.out \
+            ./...
+
+      # --------------------------------------------------------
+      # COVERAGE REPORT
+      # --------------------------------------------------------
+      #
+      # Mostra o coverage por função diretamente nos logs do GitHub Actions.
+      #
+      # Exemplo:
+      #
+      # money.Parse       95.0%
+      # money.Add        100.0%
+      # money.Subtract   100.0%
+      #
+      - name: Show coverage
+        run: go tool cover -func=coverage.out
+
+      # --------------------------------------------------------
+      # COVERAGE SUMMARY
+      # --------------------------------------------------------
+      #
+      # Extrai o coverage total e coloca no Job Summary.
+      #
+      # O Job Summary aparece de forma mais amigável na
+      # interface do GitHub Actions.
+      #
+      - name: Add coverage to job summary
+        shell: bash
+        run: |
+          COVERAGE="$(go tool cover -func=coverage.out | grep total | awk '{print $3}')"
+
+          echo "## Test Coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Total coverage:** ${COVERAGE}" >> "$GITHUB_STEP_SUMMARY"
+
+      # --------------------------------------------------------
+      # RACE DETECTOR
+      # --------------------------------------------------------
+      #
+      # Executa novamente os testes utilizando o detector de
+      # data races do Go.
+      #
+      # Isso será especialmente importante neste projeto devido
+      # a workers, consumers, publishers e goroutines.
+      #
+      # IMPORTANTE:
+      #
+      # O race detector encontra concorrência insegura dentro
+      # do processo Go.
+      #
+      # Ele NÃO substitui os testes de concorrência distribuída
+      # no PostgreSQL que faremos futuramente.
+      #
+      - name: Run race detector
+        run: go test -timeout="${GO_TEST_TIMEOUT}" -race ./...
+
+      # --------------------------------------------------------
+      # COVERAGE ARTIFACT
+      # --------------------------------------------------------
+      #
+      # Guarda coverage.out como artifact da execução.
+      #
+      # Assim podemos baixar posteriormente o arquivo pelo
+      # GitHub Actions e analisá-lo.
+      #
+      # "if: always()" faz o step ser avaliado mesmo se algum
+      # step anterior falhar.
+      #
+      # ignore significa que não haverá erro caso coverage.out
+      # não tenha sido criado, por exemplo se os testes falharem
+      # antes da geração do arquivo.
+      #
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ============================================================
+  # BUILD
+  # ============================================================
+  #
+  # O build NÃO executa em paralelo com os jobs anteriores.
+  #
+  # Ele depende explicitamente de:
+  #
+  # - format
+  # - test
+  #
+  # Portanto:
+  #
+  # format ──┐
+  #          ├──> build
+  # test ────┘
+  #
+  # Se qualquer um falhar, o build não será executado.
+  #
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    needs:
+      - format
+      - test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      # Compila todos os packages do projeto.
+      #
+      # Neste momento nosso objetivo é simplesmente garantir
+      # que todo o projeto possa ser compilado.
+      - name: Build application
+        run: go build ./...
