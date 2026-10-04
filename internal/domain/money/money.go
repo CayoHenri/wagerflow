@@ -100,6 +100,39 @@ func Zero(currency Currency) (Money, error) {
 	return NewFromMinorUnits(0, currency)
 }
 
+// ações
+func (m Money) Add(other Money) (Money, error) {
+	if !m.IsValid() || !other.IsValid() {
+		return Money{}, ErrInvalidMoney
+	}
+
+	if m.currency != other.currency {
+		return Money{}, ErrCurrencyMismatch
+	}
+
+	if other.amount > math.MaxInt64-m.amount {
+		return Money{}, ErrAmountOverflow
+	}
+
+	return NewFromMinorUnits(m.amount+other.amount, m.currency)
+}
+
+func (m Money) Subtract(other Money) (Money, error) {
+	if !m.IsValid() || !other.IsValid() {
+		return Money{}, ErrInvalidMoney
+	}
+
+	if m.currency != other.currency {
+		return Money{}, ErrCurrencyMismatch
+	}
+
+	if other.amount > m.amount {
+		return Money{}, ErrNegativeAmount
+	}
+
+	return NewFromMinorUnits(m.amount-other.amount, m.currency)
+}
+
 // representação
 func (m Money) Amount() int64 {
 	return m.amount

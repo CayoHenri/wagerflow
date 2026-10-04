@@ -1,6 +1,7 @@
 package money
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -433,5 +434,170 @@ func TestMoneyIsValid(t *testing.T) {
 		var m Money
 
 		assert.False(t, m.IsValid())
+	})
+}
+
+func TestMoneyAdd(t *testing.T) {
+	t.Run("should add money with same currency", func(t *testing.T) {
+		first, err := Parse("100.00", BRL)
+		require.NoError(t, err)
+
+		second, err := Parse("25.50", BRL)
+		require.NoError(t, err)
+
+		result, err := first.Add(second)
+
+		require.NoError(t, err)
+
+		assert.Equal(t, "125.50", result.String())
+		assert.Equal(t, BRL, result.Currency())
+	})
+
+	t.Run("should add zero", func(t *testing.T) {
+		first, err := Parse("100.00", BRL)
+		require.NoError(t, err)
+
+		zero, err := Zero(BRL)
+		require.NoError(t, err)
+
+		result, err := first.Add(zero)
+
+		require.NoError(t, err)
+
+		assert.True(t, first.Equal(result))
+	})
+
+	t.Run("should reject different currencies", func(t *testing.T) {
+		first, err := Parse("100.00", BRL)
+		require.NoError(t, err)
+
+		second, err := Parse("25.00", USD)
+		require.NoError(t, err)
+
+		result, err := first.Add(second)
+
+		require.Error(t, err)
+
+		assert.ErrorIs(t, err, ErrCurrencyMismatch)
+		assert.Equal(t, Money{}, result)
+	})
+
+	t.Run("should reject overflow", func(t *testing.T) {
+		first, err := NewFromMinorUnits(math.MaxInt64, BRL)
+		require.NoError(t, err)
+
+		second, err := NewFromMinorUnits(1, BRL)
+		require.NoError(t, err)
+
+		result, err := first.Add(second)
+
+		require.Error(t, err)
+
+		assert.ErrorIs(t, err, ErrAmountOverflow)
+		assert.Equal(t, Money{}, result)
+	})
+
+	t.Run("should reject invalid money", func(t *testing.T) {
+		first, err := Parse("100.00", BRL)
+		require.NoError(t, err)
+
+		var invalid Money
+
+		result, err := first.Add(invalid)
+
+		require.Error(t, err)
+
+		assert.ErrorIs(t, err, ErrInvalidMoney)
+		assert.Equal(t, Money{}, result)
+	})
+}
+
+func TestMoneySubtract(t *testing.T) {
+	t.Run("should subtract money with same currency", func(t *testing.T) {
+		first, err := Parse("100.00", BRL)
+		require.NoError(t, err)
+
+		second, err := Parse("25.50", BRL)
+		require.NoError(t, err)
+
+		result, err := first.Subtract(second)
+
+		require.NoError(t, err)
+
+		assert.Equal(t, "74.50", result.String())
+		assert.Equal(t, BRL, result.Currency())
+	})
+
+	t.Run("should result in zero when amounts are equal", func(t *testing.T) {
+		first, err := Parse("100.00", BRL)
+		require.NoError(t, err)
+
+		second, err := Parse("100.00", BRL)
+		require.NoError(t, err)
+
+		result, err := first.Subtract(second)
+
+		require.NoError(t, err)
+
+		assert.True(t, result.IsZero())
+		assert.Equal(t, "0.00", result.String())
+	})
+
+	t.Run("should subtract zero", func(t *testing.T) {
+		first, err := Parse("100.00", BRL)
+		require.NoError(t, err)
+
+		zero, err := Zero(BRL)
+		require.NoError(t, err)
+
+		result, err := first.Subtract(zero)
+
+		require.NoError(t, err)
+
+		assert.True(t, first.Equal(result))
+	})
+
+	t.Run("should reject result below zero", func(t *testing.T) {
+		first, err := Parse("100.00", BRL)
+		require.NoError(t, err)
+
+		second, err := Parse("150.00", BRL)
+		require.NoError(t, err)
+
+		result, err := first.Subtract(second)
+
+		require.Error(t, err)
+
+		assert.ErrorIs(t, err, ErrNegativeAmount)
+		assert.Equal(t, Money{}, result)
+	})
+
+	t.Run("should reject different currencies", func(t *testing.T) {
+		first, err := Parse("100.00", BRL)
+		require.NoError(t, err)
+
+		second, err := Parse("25.00", USD)
+		require.NoError(t, err)
+
+		result, err := first.Subtract(second)
+
+		require.Error(t, err)
+
+		assert.ErrorIs(t, err, ErrCurrencyMismatch)
+		assert.Equal(t, Money{}, result)
+	})
+
+	t.Run("should reject invalid money", func(t *testing.T) {
+		first, err := Parse("100.00", BRL)
+		require.NoError(t, err)
+
+		var invalid Money
+
+		result, err := first.Subtract(invalid)
+
+		require.Error(t, err)
+
+		assert.ErrorIs(t, err, ErrInvalidMoney)
+		assert.Equal(t, Money{}, result)
 	})
 }
